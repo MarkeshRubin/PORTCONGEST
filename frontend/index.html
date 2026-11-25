@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Port Congestion & ETA Predictor</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      background: #f8fafc;
+      color: #0f172a;
+      margin: 0;
+      padding: 2rem;
+    }
+    .page-wrap {
+      max-width: 1120px;
+      margin: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+    }
+    .top-grid {
+      display: grid;
+      grid-template-columns: 1fr 1.2fr;
+      gap: 1.5rem;
+    }
+    .card {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 1.5rem;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    }
+    h2 {
+      margin-top: 0;
+      color: #065f46;
+      font-size: 1.25rem;
+    }
+    label {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 600;
+      margin: 0.75rem 0 0.25rem;
+    }
+    input, select {
+      width: 100%;
+      padding: 0.5rem;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      box-sizing: border-box;
+      background: #ffffff;
+      color: #0f172a;
+    }
+    .btn-row {
+      display: grid;
+      grid-template-columns: 1.4fr 1fr;
+      gap: 0.75rem;
+      margin-top: 1.25rem;
+    }
+    button {
+      width: 100%;
+      padding: 0.75rem;
+      background: #059669;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #047857;
+    }
+    button.secondary {
+      background: #ecfdf5;
+      color: #065f46;
+      border: 1px solid #10b981;
+    }
+    button.secondary:hover {
+      background: #d1fae5;
+    }
+    button.small-btn {
+      width: auto;
+      padding: 0.4rem 0.8rem;
+      font-size: 0.8rem;
+      margin-top: 0;
+    }
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.75rem;
+      margin-bottom: 1.5rem;
+    }
+    .kpi {
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      padding: 0.75rem;
+      border-radius: 8px;
+      text-align: center;
+    }
+    .kpi span {
+      display: block;
+      font-size: 0.75rem;
+      color: #166534;
+    }
+    .kpi strong {
+      font-size: 1.25rem;
+      color: #064e3b;
+    }
+    .kpi small {
+      display: block;
+      font-size: 0.72rem;
+      color: #334155;
+      margin-top: 0.25rem;
+    }
+    .kpi.cong-low {
+      background: #f0fdf4;
+      border-color: #86efac;
+    }
+    .kpi.cong-low strong, .kpi.cong-low span {
+      color: #166534;
+    }
+    .kpi.cong-moderate {
+      background: #fffbeb;
+      border-color: #fcd34d;
+    }
+    .kpi.cong-moderate strong, .kpi.cong-moderate span {
+      color: #92400e;
+    }
+    .kpi.cong-high {
+      background: #fef2f2;
+      border-color: #fca5a5;
+    }
+    .kpi.cong-high strong, .kpi.cong-high span {
+      color: #991b1b;
+    }
+    #map {
+      height: 360px;
+      width: 100%;
+      border-radius: 8px;
+      border: 1px solid #cbd5e1;
+      z-index: 1;
+    }
+    .map-caption {
+      margin-top: 0.6rem;
+      font-size: 0.85rem;
+      color: #475569;
+    }
+    .log-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.75rem;
+    }
+    .table-wrap {
+      overflow-x: auto;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.875rem;
+    }
+    th, td {
+      text-align: left;
+      padding: 0.6rem 0.75rem;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    th {
+      background: #f0fdf4;
+      color: #065f46;
+      font-weight: 600;
+    }
+    .badge {
+      display: inline-block;
+      padding: 0.2rem 0.55rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .badge-low { background: #dcfce7; color: #166534; }
+    .badge-moderate { background: #fef3c7; color: #92400e; }
+    .badge-high { background: #fee2e2; color: #991b1b; }
+    @media (max-width: 820px) {
+      .top-grid {
+        grid-template-columns: 1fr;
+      }
+      .btn-row {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page-wrap">
+    <div class="top-grid">
+      <div class="card">
+        <h2>Vessel &amp; Port Telemetry</h2>
+
+        <label for="portSelect">Target Port Preset</label>
+        <select id="portSelect" onchange="applyPortPreset(this.value)">
+          <option value="chennai">Chennai Port (INMAA)</option>
+          <option value="voc">V.O. Chidambaranar Port, Tuticorin (INTUT)</option>
+          <option value="vizag">Visakhapatnam Port (INVTZ)</option>
+          <option value="singapore">Port of Singapore (SGSIN)</option>
+          <option value="rotterdam">Port of Rotterdam (NLRTM)</option>
+        </select>
+
+        <label for="distance">Distance to Port (Nautical Miles)</label>
+        <input type="number" id="distance" value="180" />
+
+        <label for="speed">Vessel Speed (Knots)</label>
+        <input type="number" id="speed" value="15.5" step="0.1" />
+
+        <label for="anchor">Vessels Currently at Anchor</label>
+        <input type="number" id="anchor" value="18" />
+
+        <label for="occupancy">Berth Occupancy (%)</label>
+        <input type="number" id="occupancy" value="84" />
+
+        <label for="wind">Wind Speed (Knots)</label>
+        <input type="number" id="wind" value="14" />
+        <div id="weatherStatus">...</div>
+        <div class="btn-row">
+          <button onclick="runPrediction(true)">Predict ETA &amp; Congestion</button>
+          <button class="secondary" onclick="compareAllPorts()">Compare All Ports</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Forecast &amp; Berth Delay Analysis</h2>
+        <div class="kpi-grid">
+          <div class="kpi">
+            <span>Total ETA</span>
+            <strong id="etaVal">--</strong>
+            <small id="arrivalTimeVal">Est. Arrival: --</small>
+          </div>
+          <div class="kpi">
+            <span>Anchorage Wait</span>
+            <strong id="waitVal">--</strong>
+            <small id="transitVal">Transit: --</small>
+          </div>
+          <div class="kpi" id="congCard">
+            <span>Congestion</span>
+            <strong id="congVal">--</strong>
+            <small id="congScoreSub">Index: --</small>
+          </div>
+        </div>
+        <canvas id="etaChart" height="180"></canvas>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Interactive Port &amp; Vessel Approach Map</h2>
+      <div id="map"></div>
+      <div class="map-caption" id="mapCaption">
+        Click any port marker to load port telemetry and recalculate ETA.
+      </div>
+    </div>
+
+    <div class="card">
+     <div class="log-header">
+        <h2 style="margin: 0;">Scenario Comparison &amp; Prediction Log</h2>
+        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+          <input
+            type="file"
+            id="csvFileInput"
+            accept=".csv,text/csv"
+            style="display: none;"
+            onchange="handleCsvUpload(event)"
+          />
+          <button
+            class="secondary small-btn"
+            onclick="document.getElementById('csvFileInput').click()"
+          >
+            Upload CSV
+          </button>
+          <button class="secondary small-btn" onclick="exportLogCsv()">
+            Export CSV
+          </button>
+          <button class="secondary small-btn" onclick="clearLog()">
+            Clear Log
+          </button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Port / Scenario</th>
+              <th>Dist (nm)</th>
+              <th>Speed (kn)</th>
+              <th>Anchor / Berth</th>
+              <th>Total ETA</th>
+              <th>Wait</th>
+              <th>Congestion</th>
+            </tr>
+          </thead>
+          <tbody id="logBody">
+            <tr>
+              <td colspan="7" style="color: #64748b; text-align: center;">
+                Run a prediction or click "Compare All Ports" to log scenarios.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const PORTS = {
+  chennai: {
+    name: "Chennai Port (INMAA)",
+    lat: 13.0827,
+    lon: 80.2950,
+    seaLat: 13.08,
+    seaLon: 80.42,
+    originLat: 11.4500,
+    originLon: 81.6500,
+    distance_nm: 180,
+    vessels_at_anchor: 18,
+    berth_occupancy: 84,
+    wind_speed_knots: 14
+  },
+  voc: {
+    name: "V.O. Chidambaranar Port (INTUT)",
+    lat: 8.7642,
+    lon: 78.2140,
+    seaLat: 8.74,
+    seaLon: 78.35,
+    originLat: 7.3500,
+    originLon: 79.3500,
+    distance_nm: 145,
+    vessels_at_anchor: 11,
+    berth_occupancy: 72,
+    wind_speed_knots: 12
+  },
+  vizag: {
+    name: "Visakhapatnam Port (INVTZ)",
+    lat: 17.6868,
+    lon: 83.2980,
+    seaLat: 17.65,
+    seaLon: 83.45,
+    originLat: 16.1000,
+    originLon: 84.8500,
+    distance_nm: 210,
+    vessels_at_anchor: 24,
+    berth_occupancy: 88,
+    wind_speed_knots: 16
+  },
+  singapore: {
+    name: "Port of Singapore (SGSIN)",
+    lat: 1.2644,
+    lon: 103.8220,
+    seaLat: 1.20,
+    seaLon: 103.85,
+    originLat: 2.4500,
+    originLon: 102.1500,
+    distance_nm: 165,
+    vessels_at_anchor: 36,
+    berth_occupancy: 93,
+    wind_speed_knots: 15
+  },
+  rotterdam: {
+    name: "Port of Rotterdam (NLRTM)",
+    lat: 51.9244,
+    lon: 4.4777,
+    seaLat: 52.02,
+    seaLon: 3.95,
+    originLat: 51.4500,
+    originLon: 2.1500,
+    distance_nm: 150,
+    vessels_at_anchor: 14,
+    berth_occupancy: 79,
+    wind_speed_knots: 22
+  }
+};
+
+    let chart;
+    let hasLogged = false;
+    const map = L.map("map").setView([PORTS.chennai.lat, PORTS.chennai.lon], 7);
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 18,
+      attribution: "&copy; OpenStreetMap contributors"
+    }).addTo(map);
+
+    let anchorageCircle = null;
+    let routeLine = null;
+    let vesselMarker = null;
+
+    Object.entries(PORTS).forEach(([key, port]) => {
+      const marker = L.circleMarker([port.lat, port.lon], {
+        radius: 8,
+        color: "#065f46",
+        weight: 2,
+        fillColor: "#10b981",
+        fillOpacity: 0.9
+      }).addTo(map);
+
+      marker.bindPopup(`<strong>${port.name}</strong><br/>Click to load port`);
+      marker.on("click", () => {
+        document.getElementById("portSelect").value = key;
+        applyPortPreset(key);
+      });
+    });
+
+    function formatArrivalTimestamp(etaHours) {
+      const arrival = new Date(Date.now() + etaHours * 3600 * 1000);
+      return arrival.toLocaleString([], {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit"
+      });
+    }
+
+    function applyCongestionStyle(level) {
+      const card = document.getElementById("congCard");
+      card.classList.remove("cong-low", "cong-moderate", "cong-high");
+      if (level === "High") card.classList.add("cong-high");
+      else if (level === "Moderate") card.classList.add("cong-moderate");
+      else card.classList.add("cong-low");
+    }
+
+    function addLogRow(label, payload, data) {
+      const tbody = document.getElementById("logBody");
+      if (!hasLogged) {
+        tbody.innerHTML = "";
+        hasLogged = true;
+      }
+      const badgeClass =
+        data.congestion_level === "High"
+          ? "badge-high"
+          : data.congestion_level === "Moderate"
+          ? "badge-moderate"
+          : "badge-low";
+
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td><strong>${label}</strong></td>
+        <td>${payload.distance_nm}</td>
+        <td>${payload.speed_knots}</td>
+        <td>${payload.vessels_at_anchor} / ${payload.berth_occupancy}%</td>
+        <td><strong>${data.predicted_eta_hours} hrs</strong></td>
+        <td>${data.estimated_wait_hours} hrs</td>
+        <td><span class="badge ${badgeClass}">${data.congestion_level} (${data.congestion_score}%)</span></td>
+      `;
+      tbody.prepend(tr);
+    }
+let logRowsData = [];
+
+    function recordScenario(label, payload, data) {
+      logRowsData.unshift({
+        scenario: label,
+        distance_nm: payload.distance_nm,
+        speed_knots: payload.speed_knots,
+        vessels_at_anchor: payload.vessels_at_anchor,
+        berth_occupancy: payload.berth_occupancy,
+        wind_speed_knots: payload.wind_speed_knots,
+        predicted_eta_hours: data.predicted_eta_hours,
+        estimated_wait_hours: data.estimated_wait_hours,
+        congestion_level: data.congestion_level,
+        congestion_score: data.congestion_score
+      });
+      addLogRow(label, payload, data);
+    }
+
+    async function handleCsvUpload(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const res = await fetch("/api/predict-csv", {
+        method: "POST",
+        body: formData
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.detail || "CSV upload failed.");
+        event.target.value = "";
+        return;
+      }
+
+      data.forEach((item) => {
+        recordScenario(item.label, item.input, item.prediction);
+      });
+      event.target.value = "";
+    }
+
+    function exportLogCsv() {
+      if (!logRowsData.length) {
+        alert("No scenarios in the log to export yet.");
+        return;
+      }
+      const headers = [
+        "scenario",
+        "distance_nm",
+        "speed_knots",
+        "vessels_at_anchor",
+        "berth_occupancy",
+        "wind_speed_knots",
+        "predicted_eta_hours",
+        "estimated_wait_hours",
+        "congestion_level",
+        "congestion_score"
+      ];
+      const lines = [
+        headers.join(","),
+        ...logRowsData.map((r) =>
+          headers.map((h) => `"${String(r[h]).replace(/"/g, '""')}"`).join(",")
+        )
+      ];
+      const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "port_eta_scenarios.csv";
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+    function clearLog() {
+      hasLogged = false;
+      logRowsData = [];
+      document.getElementById("logBody").innerHTML = `
+        <tr>
+          <td colspan="7" style="color: #64748b; text-align: center;">
+            Run a prediction or click "Compare All Ports" to log scenarios.
+          </td>
+        </tr>
+      `;
+    }
+
+    function updateMapVisuals(portKey, congestionLevel) {
+      const port = PORTS[portKey] || PORTS.chennai;
+      const alertColor =
+        congestionLevel === "High"
+          ? "#dc2626"
+          : congestionLevel === "Moderate"
+          ? "#d97706"
+          : "#059669";
+
+      if (anchorageCircle) map.removeLayer(anchorageCircle);
+      if (routeLine) map.removeLayer(routeLine);
+      if (vesselMarker) map.removeLayer(vesselMarker);
+
+      anchorageCircle = L.circle([port.lat, port.lon], {
+        radius: 22000,
+        color: alertColor,
+        fillColor: alertColor,
+        fillOpacity: 0.16
+      }).addTo(map);
+
+      routeLine = L.polyline(
+        [
+          [port.originLat, port.originLon],
+          [port.lat, port.lon]
+        ],
+        {
+          color: "#0f172a",
+          weight: 2.5,
+          dashArray: "6, 8"
+        }
+      ).addTo(map);
+
+      const vesselLat = port.originLat + (port.lat - port.originLat) * 0.35;
+      const vesselLon = port.originLon + (port.lon - port.originLon) * 0.35;
+
+      vesselMarker = L.circleMarker([vesselLat, vesselLon], {
+        radius: 7,
+        color: "#ffffff",
+        weight: 2,
+        fillColor: "#2563eb",
+        fillOpacity: 1
+      })
+        .addTo(map)
+        .bindPopup(`Approaching Vessel &rarr; ${port.name}`);
+
+      map.fitBounds(routeLine.getBounds(), { padding: [35, 35] });
+      document.getElementById("mapCaption").innerText =
+        `Active Route: ${port.name} | Anchorage Zone Radius: 22 km | Congestion Status: ${congestionLevel}`;
+    }
+
+    async function syncLiveWeather(portKey) {
+      const port = PORTS[portKey];
+      const statusEl = document.getElementById("weatherStatus");
+      if (!port) return;
+
+      statusEl.innerText = `Fetching live Open-Meteo marine feed for ${port.name}...`;
+      try {
+        const res = await fetch(`/api/live-weather?lat=${port.seaLat}&lon=${port.seaLon}`);
+        if (!res.ok) throw new Error("API unavailable");
+        const wx = await res.json();
+
+        document.getElementById("wind").value = wx.wind_speed_knots;
+        const waveText = wx.wave_height_m !== null ? `${wx.wave_height_m} m` : "N/A";
+        const swellText = wx.swell_wave_height_m !== null ? `${wx.swell_wave_height_m} m` : "N/A";
+        statusEl.innerText = `Live Marine Feed: Wind ${wx.wind_speed_knots} kn | Wave ${waveText} | Swell ${swellText}`;
+      } catch (err) {
+        document.getElementById("wind").value = port.wind_speed_knots;
+        statusEl.innerText = `Offline fallback: using preset wind (${port.wind_speed_knots} kn)`;
+      }
+    }
+
+    async function applyPortPreset(portKey) {
+      const port = PORTS[portKey];
+      if (!port) return;
+      document.getElementById("distance").value = port.distance_nm;
+      document.getElementById("anchor").value = port.vessels_at_anchor;
+      document.getElementById("occupancy").value = port.berth_occupancy;
+      await syncLiveWeather(portKey);
+      runPrediction(true);
+    }
+
+    function renderForecastUI(portKey, payload, data, shouldLog) {
+      document.getElementById("etaVal").innerText = `${data.predicted_eta_hours} hrs`;
+      document.getElementById("arrivalTimeVal").innerText =
+        `Est. Arrival: ${formatArrivalTimestamp(data.predicted_eta_hours)}`;
+      document.getElementById("waitVal").innerText = `${data.estimated_wait_hours} hrs`;
+      document.getElementById("transitVal").innerText = `Transit: ${data.base_transit_hours} hrs`;
+      document.getElementById("congVal").innerText = data.congestion_level;
+      document.getElementById("congScoreSub").innerText = `Index: ${data.congestion_score}%`;
+
+      applyCongestionStyle(data.congestion_level);
+      updateMapVisuals(portKey, data.congestion_level);
+
+      const ctx = document.getElementById("etaChart").getContext("2d");
+      if (chart) chart.destroy();
+      chart = new Chart(ctx, {
+        type: "bar",
+        data: {
+          labels: ["Open Water Transit", "Predicted Anchorage Wait"],
+          datasets: [
+            {
+              label: "Hours",
+              data: [data.base_transit_hours, data.estimated_wait_hours],
+              backgroundColor: ["#10b981", "#f59e0b"],
+              borderRadius: 6
+            }
+          ]
+        },
+        options: { responsive: true, plugins: { legend: { display: false } } }
+      });
+
+      if (shouldLog) {
+        const portName = (PORTS[portKey] && PORTS[portKey].name) || "Custom Telemetry";
+        recordScenario(portName, payload, data);
+      }
+    }
+
+    async function runPrediction(shouldLog = true) {
+      const portKey = document.getElementById("portSelect").value;
+      const payload = {
+        distance_nm: parseFloat(document.getElementById("distance").value),
+        speed_knots: parseFloat(document.getElementById("speed").value),
+        vessels_at_anchor: parseInt(document.getElementById("anchor").value),
+        berth_occupancy: parseFloat(document.getElementById("occupancy").value),
+        wind_speed_knots: parseFloat(document.getElementById("wind").value)
+      };
+
+      const res = await fetch("/api/predict", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      renderForecastUI(portKey, payload, data, shouldLog);
+    }
+
+    async function compareAllPorts() {
+      const currentSpeed = parseFloat(document.getElementById("speed").value) || 15.5;
+      const entries = Object.entries(PORTS);
+      const batchPayload = entries.map(([, port]) => ({
+        distance_nm: port.distance_nm,
+        speed_knots: currentSpeed,
+        vessels_at_anchor: port.vessels_at_anchor,
+        berth_occupancy: port.berth_occupancy,
+        wind_speed_knots: port.wind_speed_knots
+      }));
+
+      const res = await fetch("/api/predict-batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(batchPayload)
+      });
+      const results = await res.json();
+
+      results.forEach((data, idx) => {
+        const [, port] = entries[idx];
+      recordScenario(`${port.name} (${currentSpeed} kn)`, batchPayload[idx], data);
+      });
+    }
+
+    (async () => {
+      await syncLiveWeather("chennai");
+      runPrediction(false);
+    })();
+  </script>
+</body>
+</html>

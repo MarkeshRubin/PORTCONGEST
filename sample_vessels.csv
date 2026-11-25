@@ -1,0 +1,7 @@
+vessel_name,distance_nm,speed_knots,vessels_at_anchor,berth_occupancy,wind_speed_knots
+MV Coromandel Star,180,15.5,18,84,14
+MV Gulf of Mannar,145,14.0,12,72,12
+MV Straits Voyager,165,16.5,36,93,15
+MV Bay of Bengal,220,13.5,24,88,19
+MV Palk Strait,110,15.0,8,65,10
+MV Deccan Horizon,260,17.0,42,96,22
